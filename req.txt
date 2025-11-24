@@ -1,0 +1,3 @@
+echo "opencv-ython==4.8.0.74
+mediapipe==0.10.3
+numpy==1.24.3
