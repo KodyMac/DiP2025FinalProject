@@ -43,7 +43,77 @@ class PoseEstimator:
         self.pose.close()
 
 
-class HaGRIDEval:
+class GestureClassifier:
+    
+    GESTURE_MAP = {
+        'left_hand_raised': 'hand_raise',
+        'right_hand_raised': 'hand_raise',
+        'both_hands_raised': 'hand_raise',
+        'squatting': 'squat',
+        'arms_crossed': 'arms_crossed',
+        't_pose': 't_pose',
+        'standing': 'standing',
+        'no_person': 'no_detection'
+    }
+
+    def __init__(self):
+        self.mp_pose = mp.solutions.pose
+
+    def classify(self, landmarks):
+        #determine class of gesture using landmarks
+        if not landmarks:
+            return 'no_person', 0.0
+        
+        lw = landmarks[self.mp_pose.PoseLandmark.LEFT_WRIST]
+        rw = landmarks[self.mp_pose.PoseLandmark.RIGHT_WRIST]
+        ls = landmarks[self.mp_pose.PoseLandmark.LEFT_SHOULDER]
+        rs = landmarks[self.mp_pose.PoseLandmark.RIGHT_SHOULDER]
+        lh = landmarks[self.mp_pose.PoseLandmark.LEFT_HIP]
+        rh = landmarks[self.mp_pose.PoseLandmark.RIGHT_HIP]
+
+        #check hand raise
+        left_raised = lw.y < ls.y - 0.1 #left hand lower than left shoulder
+        right_raised = rw.y < rs.y -0.1
+
+        if left_raised and right_raised:
+            return 'both_hands_raised', 0.9
+        elif left_raised:
+            return 'left_hand_raised', 0.85
+        elif right_raised:
+            return 'right_hand_raised', 0.85
+        
+        #check for t pose
+        left_horiz = abs(lw.y - ls.y) < 0.1 and lw.x < ls.x - 0.15
+        right_horiz = abs(rw.y - rs.y) < 0.1 and rw.x > rs.x + 0.15
+        if left_horiz and right_horiz:
+            return 't_pose', 0.85
+        
+        #check for crossing arms
+        mid_x = (ls.x + rs.x) / 2
+        chest_y = (ls.y + rs.y) / 2
+        crossed = (lw.x > mid_x and rw.x < mid_x and  #left wrist more right than center, right more left than center
+                   abs(lw.y - chest_y) < 0.2 and abs(rw.y - chest_y) < 0.2)
+        if crossed:
+            return 'arms_crossed', 0.8
+        
+        #check for squat (hips lowered)
+        avg_hip_y = (lh.y + rh.y) / 2
+        avg_shoulder_y = (ls.y + rs.y) / 2
+        torso_short = (avg_hip_y - avg_shoulder_y) < 0.3
+        if torso_short:
+            return 'squatting', 0.75
+        
+        return 'standing', 0.5
+
+
+
+
+
+
+
+
+
+"""class HaGRIDEval:
     GESTURE_MAP = {   #HaGRID classes
         'call': 'Hand Gesture', 'dislike': 'Hand Gesture', 'fist': 'Hand Gesture',
         'four': 'Hand Gesture', 'like': 'Hand Gesture', 'mute': 'Hand Gesture',
@@ -174,4 +244,4 @@ class HaGRIDEval:
     
 
 class MPIIEval:
-    #evaluate MPII human pose dataset
+    #evaluate MPII human pose dataset"""
