@@ -159,9 +159,175 @@ class CustomDatasetCreator:
             
             cv2.imshow('Dataset Recording', display)
 
+            key = cv2.waitKey(1) & 0xFF
+            if key == ord(' '): #space to caputure
+                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S_%f') #get capture time (year,month, day, hour, minute, second)
+                filename = f"{gesture_name}_{timestamp}.jpg"
+                filepath = save_dir / filename
+
+                cv2.imwrite(str(filepath),frame)
+                self.annotations.append({
+                    'filename': filename,
+                    'gesture': gesture_name,
+                    'path': str(filepath.relative_to(self.output_dir)),
+                    'timestamp': timestamp
+                })
+                samples_saved += 1
+                print(f" Captured {samples_saved}/{num_samp}: {filename}")
+                
+                #wait? cv2.waitKey(300)
+
+            elif key == ord('q'): #quit
+                break
+            elif key == ord('s'): #skip current gesture
+                print(f" Skip '{gesture_name}' ({samples_saved} samples saved)")
+                break
+
+        cap.release()
+        cv2.destroyAllWindows()
+
+        self._save_annotations()
+        print(f" Saved {samples_saved} samples for '{gesture_name}'")
+
+    #def record_all_gestures(self, samples_per_gesture=20):
 
 
 
+    #dataset evals
+class CustomDatasetEval:
+    def __init__(self, dataset_path= 'custom_dataset'):
+        self.dataset_path = Path(dataset_path)
+        self.estimator =PoseEstimator()
+        self.classifier = GestureClassifier()
+        self.results = []
+
+    def evaluate(self, visualize = False, save_viz =False):
+        ann_file = self.dataset_path / 'annotations.json'
+        if not ann_file.exists():
+            print(f" No annotations found at {ann_file}.\n Please create custom dataset first.")
+            return None
+            
+        with open(ann_file, 'r') as f:
+            annotations = json.load(f)
+
+        if not annotations:
+            print("Empty annotations file")
+            return None
+            
+        print("\n" + "="*20)
+        print("Custom Dataset Evaluation")
+        print("="*20)
+        print(f"Dataset: {self.dataset_path}")
+        print(f"Total samples: {len(annotations)}")
+
+        #organize
+        by_class = defaultdict(list)
+        for ann in annotations:
+            by_class[ann['gesture']].append(ann)
+
+        print(f"Classes: {list(by_class.keys())}")
+        print("="*20)
+
+        #evaluate each image
+        class_results = defaultdict(lambda: {'correct':0, 'total':0, 'detections': []})
+            
+        viz_dir = None
+        if save_viz:
+            viz_dir = self.dataset_path / 'visualizations'
+            viz_dir.mkdir(exist_ok=True)
+            print(f"\n Saving visualizations to : {viz_dir}")
+
+        for i, ann in enumerate(annotations):
+            img_path = self.dataset_path / ann['path']
+            if not img_path.exists():
+                print(f"Missing {img_path}")
+                continue
+
+            img = cv2.imread(str(img_path))
+            if img is None:
+                continue
+
+            #detect the pose
+            pose_results = self.estimator.detect_pose(img)
+
+            #classify gesture
+            landmarks = pose_results.pose_landmarks.landmark if pose_results.pose_landmarks else None
+            detected_gest, confidence = self.classifier.classify(landmarks)
+
+            #mpa the detected to a dataset label
+            detected_label = self.classifier.GESTURE_MAP.get(detected_gest, 'unknown')
+            gt_label = ann['gesture']
+
+            #record the result
+            correct = (detected_label == gt_label)
+            class_results[gt_label]['total'] += 1
+            if correct:
+                class_results[gt_label]['correct'] += 1
+
+            class_results[gt_label]['detections'].append({
+                'file': ann['filename'],
+                'detected': detected_label,
+                'confidence': confidence,
+                'correct': correct
+            })
+
+            #visualize
+            if visualize or save_viz:
+                viz_img = img.copy()
+                viz_img = self.estimator.draw_pose(viz_img, pose_results)
+
+                #add labels
+                color = (0,255,0) if correct else (0,0,255)
+                cv2.putText(viz_img, f"GT: {gt_label}", (10,30),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255,255,255),2)
+                cv2.putText(viz_img, f"Pred: {detected_label} ({confidence:.2f})", (10,60),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255,255,255),2)
+                cv2.putText(viz_img, "CORRECT" if correct else "WRONG", (10, 90),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
+                    
+                if save_viz:
+                    viz_path = viz_dir / f"viz_{ann['filename']}"
+                    cv2.imwrite(str(viz_path), viz_img)
+
+                if visualize:
+                    cv2.imshow('Evaluation', viz_img)
+                    key = cv2.waitKey(100) & 0xFF
+                    if key == ord('q'):
+                        break
+                    
+            #tell progress
+            if (i +1) % 20 == 0:
+                print(f" Processed {i+1}/{len(annotations)} images...")
+
+        if visualize:
+            cv2.destroyAllWindows()
+        self.estimator.close()
+        #print results
+        self._print_results(class_results)
+        return class_results
+
+
+    def _print_results(self, class_results):
+        print("\n" + "="*20)
+        print("RESULTS")
+        print("="*20)
+        print(f"{'Gesture':<20} {'Correct': <10} {'Total':<10} {'Accuracy':<10}")
+        print("="*20)
+
+        total_cor = 0
+        total_samp = 0
+
+        for gesture in sorted(class_results.keys()):
+            res = class_results[gesture]
+            acc = (res['correct'] / res['total'] * 100) if res['total'] > 0 else 0
+            print(f"{gesture:<20} {res['correct']:<10} {res['total']:<10} {acc:.1f}%")
+            total_cor += res['correct']
+            total_samp = res['total']
+
+        overall_acc = (total_cor / total_samp * 100) if total_samp > 0 else 0
+        print("-"*20)
+        print(f"{'OVERALL':<20} {total_cor:<10} {total_samp:<10} {overall_acc:.1f}%")
+        print("-"*20)
 
 
 
