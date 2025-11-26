@@ -106,6 +106,59 @@ class GestureClassifier:
         return 'standing', 0.5
 
 
+#creates custom dataset (annotated dataset from webcam)
+class CustomDatasetCreator:
+    GESTURES = ['hand_raise', 'squat', 'arms_crossed', 't_pose', 'standing']
+
+    def __init__(self, output_dir='custom_dataset'):
+        self.output_dir = Path(output_dir)
+        self.output_dir.mkdir(exist_ok=True)
+
+        for gesture in self.GESTURES:
+            (self.output_dir / gesture).mkdir(exist_ok=True)
+
+        self.annotations = []
+        print(f"\n Dataset directory created: {self.output_dir}")
+
+    def record_gesture(self, gesture_name, num_samp = 20):
+        if gesture_name not in self.GESTURES:
+            print(f"\nUnknown gesture. Choose from: {self.GESTURES}")
+            return
+        
+        cap = cv2.VideoCapture(0)
+        if not cap.isOpened():
+            print("Cannot access webcam")
+            return
+        
+        save_dir = self.output_dir / gesture_name
+        samples_saved = 0
+
+        print(f"\n Recording '{gesture_name}'")
+        print(f"  Target: {num_samp} samples")
+        print(f"   Controls: SPACE=caputure, Q=quit, S=skip")
+
+        while cap.isOpened() and samples_saved < num_samp:
+            ret, frame = cap.read()
+            if not ret:
+                break
+
+            display = frame.copy()
+            h,w= display.shape[:2]
+
+            #overlay info
+            overlay = display.copy()
+            cv2.rectangle(overlay, (10,10), (w-10, 120), (0,0,0), -1)
+            display = cv2.addWeighted(overlay, 0.6, display, 0.4, 0)
+
+            cv2.putText(display, f"Gesture: {gesture_name.upper()}", (20,40),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0,255,0),2)
+            cv2.putText(display, f"Captured: {samples_saved}/{num_samp}", (20,70),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255,255,0),2)
+            cv2.putText(display, "SPACE=Capture Q=quit S=skip", (20,100),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200,200,200),1)
+            
+            cv2.imshow('Dataset Recording', display)
+
 
 
 
