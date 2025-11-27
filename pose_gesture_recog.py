@@ -303,11 +303,11 @@ class CustomDatasetEval:
             cv2.destroyAllWindows()
         self.estimator.close()
         #print results
-        self._print_results(class_results)
+        self.print_results(class_results)
         return class_results
 
 
-    def _print_results(self, class_results):
+    def print_results(self, class_results):
         print("\n" + "="*20)
         print("RESULTS")
         print("="*20)
@@ -330,137 +330,91 @@ class CustomDatasetEval:
         print("-"*20)
 
 
+#HaGRID is hand gestures
+class HaGRIDEval:
 
-
-"""class HaGRIDEval:
-    GESTURE_MAP = {   #HaGRID classes
-        'call': 'Hand Gesture', 'dislike': 'Hand Gesture', 'fist': 'Hand Gesture',
-        'four': 'Hand Gesture', 'like': 'Hand Gesture', 'mute': 'Hand Gesture',
-        'ok': 'Hand Gesture', 'one': 'Hand Gesture', 'palm': 'Hand Gesture',
-        'peace': 'Hand Gesture', 'peace_inverted': 'Hand Gesture',
-        'rock': 'Hand Gesture', 'stop': 'Hand Gesture', 'stop_inverted': 'Hand Gesture',
-        'three': 'Hand Gesture', 'three2': 'Hand Gesture', 'two_up': 'Hand Gesture',
-        'two_up_inverted': 'Hand Gesture', 'no_gesture': 'No Gesture'
-    }
-
-    def __init__(self,dataset_path, annotations_path):
+    def __init__(self, dataset_path, annotations_path):
         self.dataset_path = Path(dataset_path)
         self.annotations_path = Path(annotations_path)
-        self.recognizer = PoseGestureRecognizer()
-        self.results = []
-
-    def load_annotations(self, split='test'):
-        #load HaGRID annotations
-        annotations = {}
-        ann_dir = self.annotations_path / split
-
-        if not ann_dir.exists():
-            print(f"Annotation directory {ann_dir} does not exist.")
-            return annotations
-        
-        for json_file in ann_dir.glob('*.json'):
-            gesture_class = json_file.stem
-            with open(json_file, 'r') as f:
-                data = json.load(f)
-                for img_id, ann in data.items():
-                    annotations[img_id] = {
-                        'gesture': gesture_class,
-                        'bboxes': ann.get('bboxes', []),
-                        'labels': ann.get('labels', [])
-                    }
-        return annotations
+        self.estimator = PoseEstimator()
     
     def evaluate(self, max_samples=100, visualize=False):
         #evaluate using HaGRID dataset
         print("=" * 20)
         print("HaGRID Evaluation")
         print("=" * 20)
+        print(f"Dataset: {self.dataset_path}")
+        print(f"Max samples: {max_samples}")
 
-        annotations = self.load_annotations('test')
-        if not annotations:
-            print("No annotations found. Exiting evaluation.")
-            return
+        #find gesture class dirs
+        gesture_dirs = [d for d in self.dataset_path.iterdir() if d.is_dir()]
+
+        if not gesture_dirs:
+            print(f"No gesture directories found in {self.dataset_path}")
+            return None
         
-        #gropu by gesture class
-        by_class = {}
-        for img_id, ann in annotations.items():
-            cls = ann['gesture']
-            if cls not in by_class:
-                by_class[cls] = []
-            by_class[cls].append((img_id,ann))
+        print(f"Found {len(gesture_dirs)} gesture classes")
+        print("="*20)
 
+        results = defaultdict(lambda: {'detected': 0, 'total': 0})
+        samples_per_class = max(1, max_samples // len(gesture_dirs))
 
-        #sample from each class
-        samples_per_class = max(1,max_samples // len(by_class))
-        total_correct = 0
-        total_samples = 0
-        class_results = {}
+        for gesture_dir in gesture_dirs:
+            gesture_name = gesture_dir.name
+            image_files = list(gesture_dir.glob('*.jpg'))[:samples_per_class]
 
-        for gesture_class, items in by_class.items():
-            samples = items[:samples_per_class]
-            correct = 0
+            print(f"\nProcessing '{gesture_name}': {len(image_files)} images")
 
-            for img_id, ann in samples:
-                #find the image file
-                img_path = self.dataset_path / gesture_class / f"{img_id}.jpg"
-                if not img_path.exists():
-                    continue
-
+            for img_path in image_files:
                 img = cv2.imread(str(img_path))
                 if img is None:
                     continue
+                
+                pose_results = self.estimator.detect_pose(img)
+                person_detected = pose_results.pose_landmarks is not None
 
-                self.recognizer.reset_state()
-                processed, detected, conf = self.recognizer.process_frame(img.copy())
-
-                #check if the detection is reasonable (person detected)
-                person_detected = detected != "No Person Found"
-
-                self.results.append({
-                    'image': img_id,
-                    'ground_truth': gesture_class,
-                    'detected': detected,
-                    'confidence': conf,
-                    'person_detected': person_detected
-                })
-
+                results[gesture_name]['total'] += 1
                 if person_detected:
-                    correct += 1
-                total_samples += 1
+                    results[gesture_name]['detected'] += 1
 
                 if visualize:
-                    cv2.putText(processed, f"GT: {gesture_class}", (20, 160),cv2.FONT_HERSHEY_SIMPLEX, 0.6,
-                                (0, 255, 255), 2)
-                    cv2.imshow('HaGrid Evaluation', processed)
-                    if cv2.waitKey(100) & 0xFF == ord('q'):
+                    viz_img = img.copy()
+                    viz_img = self.estimator.draw_pose(viz_img, pose_results)
+                    status = "DETECTED" if person_detected else "NOT DETECTED"
+                    color = (0,255,0) if person_detected else (0,0,255)
+                    cv2.putText(viz_img, f"{gesture_name}: {status}", (10,30),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
+                    cv2.imshow('HaGRID Evaluation', viz_img)
+                    if cv2.waitKey(50) & 0xFF == ord('q'):
                         break
-
-            if samples:
-                class_results[gesture_class] = {
-                    'total': len(samples),
-                    'detected': correct,
-                    'accuracy': correct / len(samples) * 100
-                }
-                total_correct += correct
 
         if visualize:
             cv2.destroyAllWindows()
 
-        #print results
-        print(f"\nResults:")
-        print("-"*20)
-        print(f"{'Class': < 20} {'Detected': < 12} {'Total': < 10} {'Rate':<10}")
-        print("-"*20)
+        self.estimator.close()
 
-        for cls, res in sorted(class_results.items()):
-            print(f"{cls:<20} {res['detected']:<12} {res['total']:<10} {res['accuracy']:.1f}%")
+        self.print_results(results)
 
-        overall = total_correct / total_samples * 100 if total_samples else 0
-        print("-"*20)
-        print(f"{'OVERALL':<20} {total_correct:<12} {total_samples:<10} {overall:.1f}%")
-
-        return class_results
+        return results
     
+    def print_results(self, results):
+        print("\n" + "="*20)
+        print("RESULTS: Detection Rate")
+        print("="*20)
+        print(f"{'Class':<20} {'Detected':<12} {'Total':<10} {'Rate':<10}")
+        print("-"*20)
 
-class MPIIEval:
-    #evaluate MPII human pose dataset"""
+        total_det = 0
+        total_samp = 0
+
+        for gesture in sorted(results.keys()):
+            res = results[gesture]
+            rate = (res['detected'] / res['total'] * 100) if res['total'] > 0 else 0
+            print(f"{gesture:<20} {res['detected']:<12} {res['total']:<10} {rate:.1f}%f")
+            total_det += res['detected']
+            total_samp += res['total']
+
+        overall_rate = (total_det / total_samp * 100) if total_samp > 0 else 0
+        print("-"*20)
+        print(f"{'OVERALL':<20} {total_det:<12} {total_samp:<10} {overall_rate:.1f}%")
+        print("="*20)
