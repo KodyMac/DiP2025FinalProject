@@ -490,4 +490,39 @@ class MPIIEval:
         return {'detected': det_count, 'total': tot_count, 'rate': detection_rate}
     
 
-    
+#class ResultsSaver:    
+
+
+def print_menu():
+    print("\n" + "="*20)
+    print("\nDataset Creation:")
+    print("  1. Record custom dataset")
+    print("\nDataset Evaluation")
+    print("  2. Evaluate custom dataset")
+    print("  3. Evaluate HaGRID dataset")
+    print("  4. Evaluate MPII dataset")
+    print("\nResults:")
+    print("  5. Export evaluation report")
+    print("  0. Exit")
+    print("-"*20)
+
+
+def main():
+    all_results = {}
+
+    print("DiP Final Project")
+
+    while True:
+        print_menu()
+        choice = input("\nSelect option: ").strip()
+
+        if choice == '1':
+            output_dir = input("Output directory [custom_dataset]: ").strip() or 'custom_dataset'
+            samples = input("Samples per gesture [20]: ").strip()
+            samples = int(samples) if samples else 20
+
+            creator = CustomDatasetCreator(output_dir)
+            creator.record_gesture(samples_per_gesture=samples)
+
+        elif choice == '2':
+            
