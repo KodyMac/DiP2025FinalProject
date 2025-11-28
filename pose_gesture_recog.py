@@ -273,24 +273,24 @@ class CustomDatasetEval:
 
             #visualize
             if visualize or save_viz:
-                viz_img = img.copy()
-                viz_img = self.estimator.draw_pose(viz_img, pose_results)
+                vis_img = img.copy()
+                vis_img = self.estimator.draw_pose(vis_img, pose_results)
 
                 #add labels
                 color = (0,255,0) if correct else (0,0,255)
-                cv2.putText(viz_img, f"GT: {gt_label}", (10,30),
+                cv2.putText(vis_img, f"GT: {gt_label}", (10,30),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255,255,255),2)
-                cv2.putText(viz_img, f"Pred: {detected_label} ({confidence:.2f})", (10,60),
+                cv2.putText(vis_img, f"Pred: {detected_label} ({confidence:.2f})", (10,60),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255,255,255),2)
-                cv2.putText(viz_img, "CORRECT" if correct else "WRONG", (10, 90),
+                cv2.putText(vis_img, "CORRECT" if correct else "WRONG", (10, 90),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
                     
                 if save_viz:
                     viz_path = viz_dir / f"viz_{ann['filename']}"
-                    cv2.imwrite(str(viz_path), viz_img)
+                    cv2.imwrite(str(viz_path), vis_img)
 
                 if visualize:
-                    cv2.imshow('Evaluation', viz_img)
+                    cv2.imshow('Evaluation', vis_img)
                     key = cv2.waitKey(100) & 0xFF
                     if key == ord('q'):
                         break
@@ -378,13 +378,13 @@ class HaGRIDEval:
                     results[gesture_name]['detected'] += 1
 
                 if visualize:
-                    viz_img = img.copy()
-                    viz_img = self.estimator.draw_pose(viz_img, pose_results)
+                    vis_img = img.copy()
+                    vis_img = self.estimator.draw_pose(vis_img, pose_results)
                     status = "DETECTED" if person_detected else "NOT DETECTED"
                     color = (0,255,0) if person_detected else (0,0,255)
-                    cv2.putText(viz_img, f"{gesture_name}: {status}", (10,30),
+                    cv2.putText(vis_img, f"{gesture_name}: {status}", (10,30),
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
-                    cv2.imshow('HaGRID Evaluation', viz_img)
+                    cv2.imshow('HaGRID Evaluation', vis_img)
                     if cv2.waitKey(50) & 0xFF == ord('q'):
                         break
 
@@ -418,3 +418,76 @@ class HaGRIDEval:
         print("-"*20)
         print(f"{'OVERALL':<20} {total_det:<12} {total_samp:<10} {overall_rate:.1f}%")
         print("="*20)
+
+class MPIIEval:
+    def __init__(self,dataset_path):
+        self.dataset_path = Path(dataset_path)
+        self.estimator = PoseEstimator()
+
+    def evaluate(self, max_samples=100, visualize=False):
+        print("\n" + "="*20)
+        print("MPII Dataset Evaluation")
+        print("="*20)
+        print(f"Dataset: {self.dataset_path}")
+        print(f"Max samples: {max_samples}")
+        print("="*20)
+
+        #find images
+        image_files = list(self.dataset_path.glob('*.jpg'))[:max_samples]
+
+        if not image_files:
+            print(f"No images found in {self.dataset_path}")
+            return None
+        
+        print(f"Found {len(image_files)} images")
+
+        det_count = 0
+        tot_count = 0
+
+        for i, img_path in enumerate(image_files):
+            img = cv2.imread(str(img_path))
+            if img is None:
+                continue
+
+            pose_results = self.estimator.detect_pose(img)
+            person_det = pose_results.pose_landmarks is not None
+
+            total_count += 1
+            if person_det:
+                det_count += 1
+
+            if visualize:
+                vis_img = img.copy()
+                vis_img = self.estimator.draw_pose(vis_img, pose_results)
+                status = "DETECTED" if person_det else "NOT DETECTED"
+                color = (0,255,0) if person_det else (0,0,255)
+                cv2.putText(vis_img, status, (10,30),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2)
+                cv2.putText(vis_img, f"Image {i+1}/{len(image_files)}", (10,60),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255,255,255),1)
+                cv2.imshow('MPII Evaluation', vis_img)
+                if cv2.waitKey(100) & 0xFF == ord('q'):
+                    break
+
+            if(i+1) % 20 == 0:
+                print(f"    Processed {i+1}/{len(image_files)} images...")
+        
+        if visualize:
+            cv2.destroyAllWindows()
+
+        self.estimator.close()
+
+        #print results
+        detection_rate = (det_count / tot_count * 100) if total_count > 0 else 0
+        print("\n" + "="*20)
+        print("Results")
+        print("="*20)
+        print(f"Images processed: {tot_count}")
+        print(f"Poses detected: {det_count}")
+        print(f"Detection rate: {detection_rate:.1f}%")
+        print("="*20)
+
+        return {'detected': det_count, 'total': tot_count, 'rate': detection_rate}
+    
+
+    
