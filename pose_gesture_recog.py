@@ -490,7 +490,52 @@ class MPIIEval:
         return {'detected': det_count, 'total': tot_count, 'rate': detection_rate}
     
 
-#class ResultsSaver:    
+class ResultsExporter:    
+    @staticmethod
+    def export_report(all_results, output_file='evaluation_reports.txt'):
+        with open(output_file, 'w') as f:
+            f.write("="*20 + "\n")
+            f.write("2D Pose Gesture Recognition Evaluation Report\n")
+            f.write("Evaluation Report\n")
+            f.write("="*20 + "\n\n")
+                #timestamp
+            f.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+
+                #wirte results for each dataset
+            for dataset_name, results in all_results.items():
+                f.write(f"\n{dataset_name}\n")
+                f.write("-"*20 + "\n")
+
+                if results:
+                    if isinstance(results, dict):
+                        for key, value in results.items():
+                            if isinstance(value, dict):
+                                f.write(f"  {key}:\n")
+                                for k, v in value.items():
+                                    f.write(f"    {k}: {v}\n")
+                        else:
+                            f.write(f"  {key}: {value}\n")
+                else:
+                    f.write(" No results available.\n")
+            f.write("\n" + "="*20 + "\n")
+        print(f"\n Evaluation report saved to {output_file}") 
+    @staticmethod
+    def export_csv(results, output_file='evaluation_results.csv'):
+        rows = []
+        for dataset, data in results.items():
+            if isinstance(data,dict):
+                for key, value in data.items():
+                    if isinstance(value,dict):
+                        for k, v in value.items():
+                            rows.append([dataset, key, k, v])
+                    else:
+                        rows.append([dataset,key, '', value])
+        #write csv
+        with open(output_file, 'w', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow(['Dataset', 'Category', 'Metric', 'Value'])
+            writer.writerows(rows)
+        print(f" CSV saved to: {output_file}")           
 
 
 def print_menu():
@@ -525,4 +570,86 @@ def main():
             creator.record_gesture(samples_per_gesture=samples)
 
         elif choice == '2':
-            
+            dataset_path = input("Dataset path [custom_dataset]: ").strip() or 'custom_dataset'
+
+            if not Path(dataset_path).exists():
+                print(f"Directory not found: {dataset_path}")
+                continue
+
+        vis = input("Visualize during evaluation? (y/n) [n]: ").lower() == 'y'
+        save_vis = input("Save visualizations? (y/n) [n]: ").lower() == 'y'
+
+        evaluator = CustomDatasetEval(dataset_path)
+        results = evaluator.evaluate(visualize = vis, save_vis=save_vis)
+
+        if results:
+            all_results['Custom Dataset'] = results
+
+        elif choice == '3':
+            default_paths = [
+                'datasets/hagrid/images',
+                'datasets\\hagrid\\images',
+                '../datasets/hagrid/images',
+                '..\\datasets\\hagrid\\images'
+            ]
+
+            found_path = None
+            for p in default_paths:
+                if Path(p).exists():
+                    found_path = p
+                    break
+
+            if found_path:
+                print(f"\n Found HaGRID dataset at: {found_path}")
+                use_default = input("Use this path? (y/n) [y]: ").lower()
+                if use_default == 'n':
+                    dataset_path = input(" Enter HaGRID images path: ").strip()
+                else:
+                    dataset_path = found_path
+            else:
+                dataset_path = input("HaGRID images path [datasets/hagrid/images]: ").strip()
+                dataset_path = dataset_path or 'datasets/hagrid/images'
+
+            if not Path(dataset_path).exists(): #validate path
+                print(f" Directory not found: {dataset_path}")
+                print(f" Expected structure: {dataset_path}/call/, {dataset_path}/like/)")
+                continue
+
+            gesture_dirs = [d for d in Path(dataset_path).iterdir() if d.is_dir()]
+            if not gesture_dirs:
+                print(f"No gesture directories found in {dataset_path}")
+                continue
+
+            print(f" Found {len(gesture_dirs)} gesture classes: {[d.name for d in gesture_dirs[:5]]}{'...' if len(gesture_dirs) > 5 else ''}")
+
+            ann_path = input("HaGRID annotations path [Enter to skip]: ").strip()
+
+            vis = input("Visualize? (y/n) [n]: ").lower() == 'y'
+            max_samp = input("Max samples per class [100]: ").strip()
+            max_samp = int(max_samp) if max_samp else 100
+
+            print(f"\n Starting HaGRID evaluation...")
+
+            #run eval
+            evaluator = HaGRIDEval(dataset_path, ann_path)
+            results = evaluator.evaluate(max_samples=max_samp, visualize=vis)
+
+            if results:
+                all_results['HaGRID'] = results
+
+        #elif choice == '4':   #to do later if time (MPII eval)
+        #    break
+
+        #make report
+        elif choice == '5':
+            if not all_results:
+                print("No evaluation results to save.")
+                continue
+
+            #export in both forms
+            ResultsExporter.export_report(all_results)
+
+
+
+
+        
