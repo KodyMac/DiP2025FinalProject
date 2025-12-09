@@ -24,7 +24,7 @@ class PoseEstimator:
 
     def detect_pose(self,image):
         #detect pose in a single image
-        rgb = cv2.cvtColor(image, cv2.COLRO_BGR2RGB)
+        rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         results = self.pose.process(rgb)
         return results
     
@@ -46,14 +46,14 @@ class PoseEstimator:
 class GestureClassifier:
     
     GESTURE_MAP = {
-        'left_hand_raised': 'hand_raise',
-        'right_hand_raised': 'hand_raise',
-        'both_hands_raised': 'hand_raise',
-        'squatting': 'squat',
-        'arms_crossed': 'arms_crossed',
-        't_pose': 't_pose',
-        'standing': 'standing',
-        'no_person': 'no_detection'
+        'thumbs_up': 'thumbs_up',
+        'peace': 'peace',
+        'fist': 'fist',
+        'leaning_left': 'leaning_left',
+        'leaning_right': 'leaning_right',
+        'pointing': 'pointing',
+        'neutral': 'neutral',
+        'no_person': 'no_person'
     }
 
     def __init__(self):
@@ -70,8 +70,62 @@ class GestureClassifier:
         rs = landmarks[self.mp_pose.PoseLandmark.RIGHT_SHOULDER]
         lh = landmarks[self.mp_pose.PoseLandmark.LEFT_HIP]
         rh = landmarks[self.mp_pose.PoseLandmark.RIGHT_HIP]
+        lthumb = landmarks[self.mp_pose.PoseLandmark.LEFT_THUMB]
+        rthumb = landmarks[self.mp_pose.PoseLandmark.RIGHT_THUMB]
+        lindex = landmarks[self.mp_pose.PoseLandmark.LEFT_INDEX]
+        rindex = landmarks[self.mp_pose.PoseLandmark.RIGHT_INDEX]
 
-        #check hand raise
+        left_thumb_up = (lthumb.y < lw.y - 0.05 and #thumb above wrist
+                        lw.y < ls.y and #hand raised
+                        lthumb.visibility > 0.5)  #thumb visible
+        
+        right_thumb_up = (rthumb.y < rw.y - 0.05 and #thumb above wrist
+                        rw.y < rs.y and #hand raised
+                        rthumb.visibility > 0.5)  #thumb visible 
+        if left_thumb_up or right_thumb_up:
+            return 'thumbs_up', 0.85
+
+        left_peace = (lindex.y < lw.y - 0.05 and #index above wrist
+                      lw.y < ls.y and #hand raised
+                      lindex.visibility > 0.5)  #index visible  
+        right_peace = (rindex.y < rw.y - 0.05 and #index above wrist
+                      rw.y < rs.y and #hand raised
+                      rindex.visibility > 0.5)  #index visible
+        if left_peace or right_peace:
+            return 'peace', 0.80
+
+        lfist = (lw.y < ls.y and #hand raised
+                 abs(lthumb.y - lw.y) < 0.05 and #thumb not extended
+                 abs(lindex.y - lw.y) < 0.05) #index not extended
+        rfist = (rw.y < rs.y and #hand raised
+                 abs(rthumb.y - rw.y) < 0.05 and #thumb not extended
+                 abs(rindex.y - rw.y) < 0.05) #index not extended
+        if lfist or rfist:
+            return 'fist', 0.75
+        
+        shoulder_slope = abs(ls.y - rs.y)
+        hip_slope = abs(lh.y - rh.y)
+        #if either shoulder or hip is tilted, person is leaning
+        if shoulder_slope > 0.08 or hip_slope > 0.08:
+            if ls.y < rs.y: #left shoulder higher, so leaning right
+                return 'leaning_right', 0.75
+            else: #right shoulder higher, so leaning left
+                return 'leaning_left', 0.75
+            
+        body_center_x = (ls.x + rs.x) / 2
+        #left arm extended to left
+        left_pointing = (lw.x < body_center_x - 0.2 and #arem extended left
+                         lindex.visibility > 0.5 and #index visible
+                         abs(lw.y - ls.y) < 0.15) #arm about horizontal
+        right_pointing = (rw.x > body_center_x + 0.2 and #arm extended right
+                          rindex.visibility > 0.5 and
+                          abs(rw.y - rs.y) < 0.15)
+        if left_pointing or right_pointing:
+            return 'pointing', 0.70
+        
+        return 'neutral', 0.5
+    
+        """#check hand raise
         left_raised = lw.y < ls.y - 0.1 #left hand lower than left shoulder
         right_raised = rw.y < rs.y -0.1
 
@@ -103,12 +157,12 @@ class GestureClassifier:
         if torso_short:
             return 'squatting', 0.75
         
-        return 'standing', 0.5
+        return 'standing', 0.5"""
 
 
 #creates custom dataset (annotated dataset from webcam)
 class CustomDatasetCreator:
-    GESTURES = ['hand_raise', 'squat', 'arms_crossed', 't_pose', 'standing']
+    GESTURES = ['thumbs_up', 'peace', 'fist', 'leaning', 'pointing']
 
     def __init__(self, output_dir='custom_dataset'):
         self.output_dir = Path(output_dir)
@@ -175,7 +229,7 @@ class CustomDatasetCreator:
                 samples_saved += 1
                 print(f" Captured {samples_saved}/{num_samp}: {filename}")
                 
-                #wait? cv2.waitKey(300)
+                cv2.waitKey(300)
 
             elif key == ord('q'): #quit
                 break
@@ -189,9 +243,32 @@ class CustomDatasetCreator:
         self._save_annotations()
         print(f" Saved {samples_saved} samples for '{gesture_name}'")
 
-    #def record_all_gestures(self, samples_per_gesture=20):
+    def record_all_gestures(self, samples_per_gesture=20):
+        print("\n" + "="*20)
+        print("Custom Dataset Recording")
+        print("="*20)
+        print(f"Gestures to record: {', '.join(self.GESTURES)}")
+        print(f"Samples per gesture: {samples_per_gesture}")
 
+        for gesture in self.GESTURES:
+            response = input(f"\nRecord '{gesture}'? (y/n/q): ").lower()
 
+            if response == 'q':
+                break
+            elif response == 'y':
+                self.record_gesture(gesture, samples_per_gesture)
+
+        print("\n" + "="*20)
+        print(f"Dataset recording finished")
+        print(f"Total samples recorded: {len(self.annotations)}")
+        print(f" Saved to: {self.output_dir.absolute()}")
+        print("="*20)
+
+    def _save_annotations(self):
+        ann_file = self.output_dir / 'annotations.json'
+        with open(ann_file, 'w') as f:
+            json.dump(self.annotations, f, indent=2)
+            
 
     #dataset evals
 class CustomDatasetEval:
@@ -201,7 +278,7 @@ class CustomDatasetEval:
         self.classifier = GestureClassifier()
         self.results = []
 
-    def evaluate(self, visualize = False, save_viz =False):
+    def evaluate(self, visualize = False, save_vis =False):
         ann_file = self.dataset_path / 'annotations.json'
         if not ann_file.exists():
             print(f" No annotations found at {ann_file}.\n Please create custom dataset first.")
@@ -232,7 +309,7 @@ class CustomDatasetEval:
         class_results = defaultdict(lambda: {'correct':0, 'total':0, 'detections': []})
             
         viz_dir = None
-        if save_viz:
+        if save_vis:
             viz_dir = self.dataset_path / 'visualizations'
             viz_dir.mkdir(exist_ok=True)
             print(f"\n Saving visualizations to : {viz_dir}")
@@ -272,7 +349,7 @@ class CustomDatasetEval:
             })
 
             #visualize
-            if visualize or save_viz:
+            if visualize or save_vis:
                 vis_img = img.copy()
                 vis_img = self.estimator.draw_pose(vis_img, pose_results)
 
@@ -285,7 +362,7 @@ class CustomDatasetEval:
                 cv2.putText(vis_img, "CORRECT" if correct else "WRONG", (10, 90),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
                     
-                if save_viz:
+                if save_vis:
                     viz_path = viz_dir / f"viz_{ann['filename']}"
                     cv2.imwrite(str(viz_path), vis_img)
 
@@ -344,10 +421,21 @@ class HaGRIDEval:
         print("HaGRID Evaluation")
         print("=" * 20)
         print(f"Dataset: {self.dataset_path}")
-        print(f"Max samples: {max_samples}")
+        print(f"Max samples per class: {max_samples}")
 
         #find gesture class dirs
         gesture_dirs = [d for d in self.dataset_path.iterdir() if d.is_dir()]
+
+        #filter non-gesture dirs
+        valid_gesture_dirs = []
+        for d in gesture_dirs:
+            jpg_files = list(d.glob('*.jpg'))
+            if jpg_files:
+                valid_gesture_dirs.append(d)
+            else:
+                print(f" Skipping empty gesture dir: {d.name}")
+
+        gesture_dirs = valid_gesture_dirs
 
         if not gesture_dirs:
             print(f"No gesture directories found in {self.dataset_path}")
@@ -357,37 +445,53 @@ class HaGRIDEval:
         print("="*20)
 
         results = defaultdict(lambda: {'detected': 0, 'total': 0})
-        samples_per_class = max(1, max_samples // len(gesture_dirs))
-
-        for gesture_dir in gesture_dirs:
+        
+        total_proc = 0
+        for gesture_idx, gesture_dir in enumerate(gesture_dirs):
             gesture_name = gesture_dir.name
-            image_files = list(gesture_dir.glob('*.jpg'))[:samples_per_class]
+            all_image_files = list(gesture_dir.glob('*.jpg'))
+            image_files = all_image_files[:max_samples]
 
-            print(f"\nProcessing '{gesture_name}': {len(image_files)} images")
+            if not image_files:
+                print(f"No images found in {gesture_dir}/, skipping...")
+                continue
+            
+            print(f"\n[{gesture_idx+1}/{len(gesture_dirs)}] Processing '{gesture_name}': {len(image_files)} images (from {len(all_image_files)} total)")
 
-            for img_path in image_files:
+            #process each image
+            for img_idx, img_path in enumerate(image_files):
                 img = cv2.imread(str(img_path))
                 if img is None:
                     continue
-                
                 pose_results = self.estimator.detect_pose(img)
-                person_detected = pose_results.pose_landmarks is not None
+                person_det = pose_results.pose_landmarks is not None
 
                 results[gesture_name]['total'] += 1
-                if person_detected:
+                if person_det:
                     results[gesture_name]['detected'] += 1
+                
+                total_proc += 1
 
+                #visualize
                 if visualize:
                     vis_img = img.copy()
                     vis_img = self.estimator.draw_pose(vis_img, pose_results)
-                    status = "DETECTED" if person_detected else "NOT DETECTED"
-                    color = (0,255,0) if person_detected else (0,0,255)
-                    cv2.putText(vis_img, f"{gesture_name}: {status}", (10,30),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
-                    cv2.imshow('HaGRID Evaluation', vis_img)
-                    if cv2.waitKey(50) & 0xFF == ord('q'):
-                        break
 
+                    status = "DETECTED" if person_det else "NOT DETECTED"
+                    color = (0,255,0) if person_det else (0,0,255)
+
+                    cv2.putText(vis_img, f"{gesture_name}: {status}", (10,30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
+                    cv2.putText(vis_img, f"Image {img_idx+1}/{len(image_files)}", (10,60), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255,255,255),1)
+                    cv2.imshow('HaGRID Evaluation', vis_img)
+                    if cv2.waitKey(100) & 0xFF == ord('q'):
+                        break
+            
+            #show summary
+            print(f"    {gesture_name}: {results[gesture_name]['detected']}/{results[gesture_name]['total']} detected ({results[gesture_name]['detected']/results[gesture_name]['total']*100:.1f}%)")
+
+        print(f"\nTotal images processed: {total_proc}")
+
+            #clean up
         if visualize:
             cv2.destroyAllWindows()
 
@@ -567,7 +671,7 @@ def main():
             samples = int(samples) if samples else 20
 
             creator = CustomDatasetCreator(output_dir)
-            creator.record_gesture(samples_per_gesture=samples)
+            creator.record_all_gestures(samples_per_gesture=samples)
 
         elif choice == '2':
             dataset_path = input("Dataset path [custom_dataset]: ").strip() or 'custom_dataset'
@@ -576,14 +680,14 @@ def main():
                 print(f"Directory not found: {dataset_path}")
                 continue
 
-        vis = input("Visualize during evaluation? (y/n) [n]: ").lower() == 'y'
-        save_vis = input("Save visualizations? (y/n) [n]: ").lower() == 'y'
+            vis = input("Visualize during evaluation? (y/n) [n]: ").lower() == 'y'
+            save_vis = input("Save visualizations? (y/n) [n]: ").lower() == 'y'
 
-        evaluator = CustomDatasetEval(dataset_path)
-        results = evaluator.evaluate(visualize = vis, save_vis=save_vis)
+            evaluator = CustomDatasetEval(dataset_path)
+            results = evaluator.evaluate(visualize = vis, save_vis=save_vis)
 
-        if results:
-            all_results['Custom Dataset'] = results
+            if results:
+                all_results['Custom Dataset'] = results
 
         elif choice == '3':
             default_paths = [
@@ -648,8 +752,15 @@ def main():
 
             #export in both forms
             ResultsExporter.export_report(all_results)
-
-
-
-
+            ResultsExporter.export_csv(all_results)
+            print("Reports exported.")
         
+        elif choice == '0':
+            print("\nGoodbye")
+            break
+        else:
+            print("Invalid option.")
+
+
+if __name__ == '__main__':
+    main()        
