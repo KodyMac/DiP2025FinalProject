@@ -353,6 +353,13 @@ class CustomDatasetEval:
                 vis_img = img.copy()
                 vis_img = self.estimator.draw_pose(vis_img, pose_results)
 
+                if i < 2:
+                    report_dir = self.dataset_path / 'report_samples'
+                    report_dir.mkdir(exist_ok=True)
+                    report_path = report_dir / f"report_sample_{i+1}_{gt_label}_{detected_label}.jpg"
+                    cv2.imwrite(str(report_path), vis_img)
+                    print(f" Saved report sample to: {report_path}")
+
                 #add labels
                 color = (0,255,0) if correct else (0,0,255)
                 cv2.putText(vis_img, f"GT: {gt_label}", (10,30),
@@ -479,6 +486,17 @@ class HaGRIDEval:
 
                     status = "DETECTED" if person_det else "NOT DETECTED"
                     color = (0,255,0) if person_det else (0,0,255)
+
+                    if img_idx == 0: #save some samples for report
+                        report_dir = self.dataset_path.parent / 'hagrid_report_samples'
+                        report_dir.mkdir(exist_ok=True)
+
+                        original_path = report_dir / f"hagrid_{gesture_name}_original.jpg"
+                        cv2.imwrite(str(original_path), img)
+                        print(f" Saved original sample to: {original_path}")
+                        report_path = report_dir / f"hagrid_{gesture_name}_{status.replace(' ', '_')}.jpg"
+                        cv2.imwrite(str(report_path), vis_img)
+                        print(f" Saved sample visualization to: {report_path}")                    
 
                     cv2.putText(vis_img, f"{gesture_name}: {status}", (10,30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
                     cv2.putText(vis_img, f"Image {img_idx+1}/{len(image_files)}", (10,60), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255,255,255),1)
